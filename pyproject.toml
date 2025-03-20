@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "diceware"
+version = "0.1.0"
+description = "Generates diceware like passwords"
+authors = ["Charles Bayley <contact@charlesbayley.dev>"]
+license = "GNU GPLv3"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pyaml = "^25.1.0"
+requests = "^2.32.3"
+click = "^8.1.8"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+
+import math
+
+import os
+from os import path
+
+import random
+
+import re
+
+
+import click
+
+import requests
+
+import yaml
+from yaml import Loader
+
+
+dirname = path.dirname(__file__)
+
+
+@click.command()
+@click.option('--dictionary-name', '--dictionary', '--dict', '-d', default='diceware',
+              help='Which dictionary to use.')
+@click.option('--word-count', '--words', '-w', default=4,
+              help='How many words to use from the given dictionary.')
+@click.option('--target-entropy', '--entropy', '-e', default=0,
+              help='How much entropy to target for the passphrase.')
+@click.option('--config-file-path', '--config', default=path.join(dirname, 'dictionaries.yml'),
+              help='Config file to use for dictionary sourcing.')
+@click.option('--dictionary-cache-path', '--cache', default=path.join(dirname, '.cache.dictionaries'),
+              help='Path for storing caches of dictionaries.')
+def main(
+        dictionary_name: str,
+        word_count: int,
+        target_entropy: int,
+        config_file_path: str,
+        dictionary_cache_path: str
+    ):
+
+    config = read_config(config_file_path)
+    dictionaries = prepare_dictionaries(config['dictionaries'], dictionary_cache_path)
+
+    dictionary = dictionaries[dictionary_name]
+
+    entropy_per_word = math.log2(len(dictionary))
+    if target_entropy > 0:
+        word_count = math.ceil(target_entropy / entropy_per_word)
+
+    passphrase = diceware_selection(dictionary, word_count)
+    password = ''.join(passphrase)
+    entropy = entropy_per_word * word_count
+
+    print(f'PASSPHRASE: { password }')
+    print(f'WORDS: { word_count }')
+    print(f'LENGTH: { len(password) }')
+    print(f'DICTIONARY: { len(dictionary) }')
+    print(f'ENTROPY: { entropy }')
+
+
+def diceware_selection(words: list[str], count: int) -> list[str]:
+    passphrase = []
+    for _ in range(count):
+        passphrase.append(random.choice(words))
+
+    return passphrase
+
+
+def read_config(file_path: str, optional=False) -> dict:
+    config = {}
+
+    if optional and not path.isfile(file_path):
+        return config
+
+    with open(file_path, 'r') as f:
+        config: dict = yaml.load(f.read(), Loader=Loader)
+
+    dirname = path.dirname(file_path)
+
+    for dictionary in config['dictionaries'].values():
+        dictionary: dict = dictionary
+        source = dictionary['source']
+        if source['type'] == 'file':
+            source['path'] = path.join(dirname, source['path'])
+
+    for extra in config.get('extra_config', []):
+        extra: dict = extra
+        extra_config = read_config(
+            path.join(dirname, extra['path']),
+            extra.get('optional', False)
+        )
+
+        config['dictionaries'].update(extra_config['dictionaries'])
+
+    if 'extra_config' in config:
+        config.pop('extra_config')
+
+    return config
+
+
+def prepare_dictionaries(dictionaries: dict, cache_dir_path: str) -> dict[str, list[str]]:
+    if not path.exists(cache_dir_path):
+        os.mkdir(cache_dir_path)
+
+    prepared = {}
+    for (name, config) in dictionaries.items():
+        name: str = name
+        config: dict = config
+        source: dict = config['source']
+
+        cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
+        if path.isfile(cache_file_path):
+            prepared[name] = read_words_from_dictionary_file(cache_file_path)
+            continue
+
+        if source['type'] == 'url':
+            response = requests.get(source['path'])
+            decoded = response.content.decode('utf-8')
+            prepared[name] = clean_words(decoded.splitlines())
+        elif source['type'] == 'file':
+            prepared[name] = read_words_from_dictionary_file(source['path'])
+        else:
+            raise f"Unknown source type '{ source['type'] }'"
+
+        with open(cache_file_path, 'w') as f:
+            f.write('\n'.join(prepared[name]))
+
+    return prepared
+
+
+def read_words_from_dictionary_file(file_path: str) -> list[str]:
+    raw_words = []
+    with open(file_path, 'r') as f:
+        raw_words = f.read().splitlines()
+
+    return clean_words(raw_words)
+
+
+def clean_words(dirties: list[str]):
+    words = set()
+    for word in dirties:
+        cleaned = re.sub(r'[^!-~]', '', uppercase_word(word))
+
+        if cleaned in words:
+            print(f'DUPLICATE: { cleaned }')
+
+        words.add(cleaned)
+
+    return list(words)
+
+
+def uppercase_word(word: str) -> str:
+    word = ''.join([word[0].upper(), *word[1:]])
+
+    return word
+
+
+if __name__ == '__main__':
+    main()

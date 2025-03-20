@@ -1,0 +1,10 @@
+---
+dictionaries:
+  diceware:
+    source:
+      type: url
+      path: https://diceware.dmuth.org/assets/wordlist/wordlist-eff-5-dice.txt
+
+extra_config:
+  - path: .secret.dictionaries.yml
+    optional: true
