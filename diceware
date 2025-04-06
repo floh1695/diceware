@@ -369,7 +369,7 @@ def read_words_from_dictionary_file(file_path: str, filters: dict, log: LogOpera
     with open(file_path, 'r') as f:
         raw_words = f.read().splitlines()
 
-    return clean_words(raw_words, filters)
+    return clean_words(raw_words, filters, log=log)
 
 
 def clean_words(dirties: list[str], filters: dict, log: LogOperation = print):
