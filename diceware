@@ -146,6 +146,11 @@ def info(
     help='Number of guesses per second to assume the attacker can perform.'
 )
 @click.option(
+    '--attacker-growth', '--growth', '-g',
+    default=0.0,
+    help='Yearly growth rate to assume attacker has per year.'
+)
+@click.option(
     '--protect-time', '--protect', '-p',
     default='0 seconds',
     help=' '.join([
@@ -175,6 +180,7 @@ def generate(
         word_count: int,
         target_entropy: float,
         attacker_power: float,
+        attacker_growth: float,
         protect_time: str,
         protection_scale: float,
     ):
@@ -188,7 +194,8 @@ def generate(
 
     if protect_time.seconds > 0:
         log(LogLevel.Trace, 'Setting target entropy from attacker and protection parameters')
-        target_entropy = math.log2(attacker_power * protect_time.seconds * protection_scale)
+        adjusted_attacker_power = attacker_power * ((1 + attacker_growth) ** protect_time.years)
+        target_entropy = math.log2(adjusted_attacker_power * protect_time.seconds * protection_scale)
         log(LogLevel.Debug, f'New targer entropy of { target_entropy } bits')
 
     entropy_per_word = math.log2(len(dictionary))
