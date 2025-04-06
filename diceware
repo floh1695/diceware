@@ -295,21 +295,22 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
         name: str = name
         config: dict = config
         source: dict = config['source']
+        filters: dict = config.get('filters')
 
         cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
         if path.isfile(cache_file_path):
             log(LogLevel.Trace, 'Reading dictionary from cache file')
-            prepared[name] = read_words_from_dictionary_file(cache_file_path, config.get('filter'), log=log)
+            prepared[name] = read_words_from_dictionary_file(cache_file_path, filters, log=log)
             continue
 
         if source['type'] == 'url':
             log(LogLevel.Trace, 'Reading dictionary from url')
             response = requests.get(source['path'])
             decoded = response.content.decode('utf-8')
-            prepared[name] = clean_words(decoded.splitlines(), config.get('filter'), log=log)
+            prepared[name] = clean_words(decoded.splitlines(), filters, log=log)
         elif source['type'] == 'file':
             log(LogLevel.Trace, 'Reading dictionary from file')
-            prepared[name] = read_words_from_dictionary_file(source['path'], config.get('filter'), log=log)
+            prepared[name] = read_words_from_dictionary_file(source['path'], filters, log=log)
         elif source['type'] == 'other':
             log(LogLevel.Debug, 'Delaying other dictionary')
             others[name] = config
