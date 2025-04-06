@@ -126,7 +126,7 @@ def info(
             mean_word,
         ]
 
-        if target_entropy != None:
+        if target_entropy > 0:
             words_needed = math.ceil(target_entropy / word_entropy)
             row.append(words_needed)
             row.append(words_needed * mean_word)
