@@ -5,6 +5,7 @@ import os
 from os import path
 import re
 import secrets
+import shutil
 
 import click
 from click import Context
@@ -30,6 +31,12 @@ dirname = path.dirname(__file__)
     help='Path for storing caches of dictionaries.'
 )
 @click.option(
+    '--dictionary-cache-reset', '--cache-reset',
+    is_flag=True,
+    default=False,
+    help='Path for storing caches of dictionaries.'
+)
+@click.option(
     '--verbose', '-v',
     default=0,
     count=True,
@@ -46,6 +53,7 @@ def main(
         context: Context,
         config_file_path: str,
         dictionary_cache_path: str,
+        dictionary_cache_reset: bool,
         verbose: int,
         silence: int
     ):
@@ -56,6 +64,9 @@ def main(
     context.obj['log'] = LogLevel.logger(level, wrap=click.echo)
 
     log: LogOperation = context.obj['log']
+
+    if dictionary_cache_reset and path.isdir(dictionary_cache_path):
+        shutil.rmtree(dictionary_cache_path)
 
     config = read_config(config_file_path, log=log)
     dictionaries = prepare_dictionaries(config['dictionaries'], dictionary_cache_path, log=log)
