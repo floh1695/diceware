@@ -304,8 +304,9 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
         if path.isfile(cache_file_path):
             log(LogLevel.Trace, 'Reading dictionary from cache file')
             words = read_words_from_dictionary_file(cache_file_path)
+            prepared[name] = words
             continue
-
+        
         if source['type'] == 'url':
             log(LogLevel.Trace, 'Reading dictionary from url')
             response = requests.get(source['path'])
@@ -322,9 +323,6 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
             raise f"Unknown source type '{ source['type'] }'"
 
         prepared[name] = apply_rules(words, config, log=log)
-
-        with open(cache_file_path, 'w') as f:
-            f.write('\n'.join(prepared[name]))
 
     others_left = len(others)
     while others_left > 0:
