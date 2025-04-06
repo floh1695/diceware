@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import math
 import os
 from os import path
@@ -9,6 +10,7 @@ import shutil
 
 import click
 from click import Context
+import jmespath
 import requests
 from tabulate import tabulate
 import yaml
@@ -295,28 +297,31 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
         name: str = name
         config: dict = config
         source: dict = config['source']
-        filters: dict = config.get('filters')
+
+        words: list[str] = []
 
         cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
         if path.isfile(cache_file_path):
             log(LogLevel.Trace, 'Reading dictionary from cache file')
-            prepared[name] = read_words_from_dictionary_file(cache_file_path, filters, log=log)
+            words = read_words_from_dictionary_file(cache_file_path)
             continue
 
         if source['type'] == 'url':
             log(LogLevel.Trace, 'Reading dictionary from url')
             response = requests.get(source['path'])
             decoded = response.content.decode('utf-8')
-            prepared[name] = clean_words(decoded.splitlines(), filters, log=log)
+            words = decoded.splitlines()
         elif source['type'] == 'file':
             log(LogLevel.Trace, 'Reading dictionary from file')
-            prepared[name] = read_words_from_dictionary_file(source['path'], filters, log=log)
+            words = read_words_from_dictionary_file(source['path'])
         elif source['type'] == 'other':
             log(LogLevel.Debug, 'Delaying other dictionary')
             others[name] = config
             continue
         else:
             raise f"Unknown source type '{ source['type'] }'"
+
+        prepared[name] = apply_rules(words, config, log=log)
 
         with open(cache_file_path, 'w') as f:
             f.write('\n'.join(prepared[name]))
@@ -329,7 +334,6 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
                 continue
 
             source: dict = config['source']
-            filters: dict = config.get('filters')
             other: list[str] = source['other']
 
             log(LogLevel.Debug, f"Preparing other dictionary '{ name }'")
@@ -347,7 +351,7 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
             if continue_word:
                 continue
 
-            prepared[name] = clean_words(list(words), filters, log=log)
+            prepared[name] = apply_rules(words, config, log=log)
             prepared_count += 1
             others_left -= 1
 
@@ -365,12 +369,25 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
     return prepared
 
 
-def read_words_from_dictionary_file(file_path: str, filters: dict, log: LogOperation = print) -> list[str]:
+def read_words_from_dictionary_file(file_path: str) -> list[str]:
     raw_words = []
     with open(file_path, 'r') as f:
         raw_words = f.read().splitlines()
 
-    return clean_words(raw_words, filters, log=log)
+    return raw_words
+
+
+def apply_rules(words: list[str], config: dict, log: LogOperation = print) -> list[str]:
+    for rule in config.get('chain', []):
+        rule: dict = rule
+        if rule.get('language', None) == 'json':
+            words = json.loads(words[0])
+
+        collect = rule.get('collect', None)
+        if collect != None:
+            words = jmespath.search(collect, words)
+
+    return clean_words(words, config.get('filters'), log=log)
 
 
 def clean_words(dirties: list[str], filters: dict, log: LogOperation = print):
