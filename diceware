@@ -276,7 +276,8 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
     if not path.exists(cache_dir_path):
         os.mkdir(cache_dir_path)
 
-    prepared = {}
+    prepared: dict[str, list[str]] = {}
+    others: dict[str, dict] = {}
     for (name, config) in dictionaries.items():
         log(LogLevel.Debug, f"Preparing dictionary '{ name }'")
 
@@ -287,41 +288,96 @@ def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperat
         cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
         if path.isfile(cache_file_path):
             log(LogLevel.Trace, 'Reading dictionary from cache file')
-            prepared[name] = read_words_from_dictionary_file(cache_file_path)
+            prepared[name] = read_words_from_dictionary_file(cache_file_path, config.get('filter'), log=log)
             continue
 
         if source['type'] == 'url':
             log(LogLevel.Trace, 'Reading dictionary from url')
             response = requests.get(source['path'])
             decoded = response.content.decode('utf-8')
-            prepared[name] = clean_words(decoded.splitlines())
+            prepared[name] = clean_words(decoded.splitlines(), config.get('filter'), log=log)
         elif source['type'] == 'file':
             log(LogLevel.Trace, 'Reading dictionary from file')
-            prepared[name] = read_words_from_dictionary_file(source['path'])
+            prepared[name] = read_words_from_dictionary_file(source['path'], config.get('filter'), log=log)
+        elif source['type'] == 'other':
+            log(LogLevel.Debug, 'Delaying other dictionary')
+            others[name] = config
+            continue
         else:
             raise f"Unknown source type '{ source['type'] }'"
 
         with open(cache_file_path, 'w') as f:
             f.write('\n'.join(prepared[name]))
 
+    others_left = len(others)
+    while others_left > 0:
+        prepared_count = 0
+        for (name, config) in others.items():
+            if name in prepared:
+                continue
+
+            source: dict = config['source']
+            filters: dict = config.get('filters')
+            other: list[str] = source['other']
+
+            log(LogLevel.Debug, f"Preparing other dictionary '{ name }'")
+
+            words = set()
+            continue_word = False
+            for oname in other['include']:
+                if oname not in prepared:
+                    log(LogLevel.Debug, f"Delaying because '{ oname }' is not prepared")
+                    continue_word = True
+                    break
+
+                words = words.union(set(prepared[oname]))
+
+            if continue_word:
+                continue
+
+            prepared[name] = clean_words(list(words), filters, log=log)
+            prepared_count += 1
+            others_left -= 1
+
+        if prepared_count == 0:
+            error = 'No progress has been made in building others!'
+            log(LogLevel.Error, error)
+            raise Exception(error)
+
+    for name in prepared:
+        cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
+        with open(cache_file_path, 'w') as f:
+            log(LogLevel.Debug, f"Writing cache for '{ name }'")
+            f.write('\n'.join(prepared[name]))
+
     return prepared
 
 
-def read_words_from_dictionary_file(file_path: str) -> list[str]:
+def read_words_from_dictionary_file(file_path: str, filters: dict, log: LogOperation = print) -> list[str]:
     raw_words = []
     with open(file_path, 'r') as f:
         raw_words = f.read().splitlines()
 
-    return clean_words(raw_words)
+    return clean_words(raw_words, filters)
 
 
-def clean_words(dirties: list[str]):
+def clean_words(dirties: list[str], filters: dict, log: LogOperation = print):
     words = set()
     for word in dirties:
         cleaned = re.sub(r'[^!-~]', '', uppercase_word(word))
 
         if cleaned in words:
-            print(f'DUPLICATE: { cleaned }')
+            log(LogLevel.Trace, f'DUPLICATE: { cleaned }')
+            continue
+
+        if filters != None:
+            if filters.get('min') != None and len(cleaned) < filters['min']:
+                log(LogLevel.Trace, f'TOO SHORT: { cleaned }')
+                continue
+
+            if filters.get('max') != None and len(cleaned) > filters['max']:
+                log(LogLevel.Trace, f'TOO LONG: { cleaned }')
+                continue
 
         words.add(cleaned)
 
