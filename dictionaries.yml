@@ -4,6 +4,10 @@ dictionaries:
     source:
       type: url
       path: https://diceware.dmuth.org/assets/wordlist/wordlist-eff-5-dice.txt
+  linux:
+    source:
+      type: url
+      path: https://users.cs.duke.edu/~ola/ap/linuxwords
 
 extra_config:
   - path: .secret.dictionaries.yml
