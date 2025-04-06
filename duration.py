@@ -4,40 +4,64 @@ import re
 
 class Duration:
     def __init__(self, coded: str):
-        duration, scale = re.match(r'(\d+)\s*(\w+)', coded.strip()).groups()
-        self._seconds = int(duration) * Duration.scale_code(scale)
+        duration, scale = re.match(r'(\d*\.?\d*)\s*(\w+)', coded.strip()).groups()
+        self._seconds = float(duration) * Duration.scale_code(scale)
 
     @property
-    def seconds(self):
+    def seconds(self) -> float:
         return self._seconds
+
+    @property
+    def minutes(self) -> float:
+        return self.seconds / 60
+    
+    @property
+    def hours(self) -> float:
+        return self.minutes / 60
+
+    @property
+    def days(self) -> float:
+        return self.hours / 24
+
+    @property
+    def years(self) -> float:
+        return self.days / 365.25
 
     @classmethod
     def scale_code(cls, code: str):
         seconds = 1.0
-        minutes = seconds * 60
-        hours = minutes * 60
-        days = hours * 24
-        years = days * 365.25
-        decades = years * 10
-        centuries = decades * 10
-        millennium = centuries * 10
-
         if code in Duration.split_code_word('seconds'):
             return seconds
-        elif code in Duration.split_code_word('minutes'):
+
+        minutes = seconds * 60
+        if code in Duration.split_code_word('minutes'):
             return minutes
-        elif code in Duration.split_code_word('hours'):
+
+        hours = minutes * 60
+        if code in Duration.split_code_word('hours'):
             return hours
-        elif code in Duration.split_code_word('days'):
+
+        days = hours * 24
+        if code in Duration.split_code_word('days'):
             return days
-        elif code in Duration.split_code_word('years'):
+
+        years = days * 365.25
+        if code in Duration.split_code_word('years'):
             return years
-        elif code in Duration.split_code_word('decades'):
+
+        decades = years * 10
+        if code in Duration.split_code_word('decades'):
             return decades
-        elif code in Duration.split_code_word('centuries'):
+
+        centuries = decades * 10
+        if code in Duration.split_code_word('centuries'):
             return centuries
-        elif code in Duration.split_code_word('millennium'):
+
+        millennium = centuries * 10
+        if code in Duration.split_code_word('millennium'):
             return millennium
+        
+        raise 'Invalid duration code!'
 
     @classmethod
     def split_code_word(cls, code: str):
