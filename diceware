@@ -13,6 +13,7 @@ from tabulate import tabulate
 import yaml
 from yaml import Loader
 
+from duration import Duration
 from log_level import LogLevel, LogOperation
 
 dirname = path.dirname(__file__)
@@ -139,18 +140,56 @@ def info(
     default=0,
     help='How much entropy to target for the passphrase.'
 )
+@click.option(
+    '--attacker-power', '--attacker', '-a',
+    default=0.0,
+    help='Number of guesses per second to assume the attacker can perform.'
+)
+@click.option(
+    '--protect-time', '--protect', '-p',
+    default='0 seconds',
+    help=' '.join([
+        'How long the password needs to be valid for.',
+        'Takes inputs of the form `{count} {unit}`.',
+        'ex: `30 days`, `1y`, `1hour`.',
+        'valid time codes are:',
+        's[econds],',
+        'm[inutes],',
+        'h[ours],',
+        'd[ays],',
+        'y[ears],',
+        'de[cades],',
+        'c[centuries],',
+        'and mil[lennium]',
+    ])
+)
+@click.option(
+    '--protection-scale', '-k',
+    default=3.0,
+    help='Assumes the attacker guessed the password by the time they have hit `possible_passwords / protection-scale` guesses.'
+)
 @click.pass_context
 def generate(
         context: Context,
         dictionary_name: str,
         word_count: int,
-        target_entropy: int,
+        target_entropy: float,
+        attacker_power: float,
+        protect_time: str,
+        protection_scale: float,
     ):
+
+    protect_time: Duration = Duration(protect_time)
 
     log: LogOperation = context.obj['log']
     dictionaries: dict[str, list[str]] = context.obj['dictionaries']
 
     dictionary = dictionaries[dictionary_name]
+
+    if protect_time.seconds > 0:
+        log(LogLevel.Trace, 'Setting target entropy from attacker and protection parameters')
+        target_entropy = math.log2(attacker_power * protect_time.seconds * protection_scale)
+        log(LogLevel.Debug, f'New targer entropy of { target_entropy } bits')
 
     entropy_per_word = math.log2(len(dictionary))
     if target_entropy > 0:
