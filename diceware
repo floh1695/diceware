@@ -1,80 +1,204 @@
 #!/usr/bin/env python3
 
 import math
-
 import os
 from os import path
-
-import random
-
 import re
-
+import secrets
 
 import click
-
+from click import Context
 import requests
-
+from tabulate import tabulate
 import yaml
 from yaml import Loader
 
+from log_level import LogLevel, LogOperation
 
 dirname = path.dirname(__file__)
 
-
-@click.command()
-@click.option('--dictionary-name', '--dictionary', '--dict', '-d', default='diceware',
-              help='Which dictionary to use.')
-@click.option('--word-count', '--words', '-w', default=4,
-              help='How many words to use from the given dictionary.')
-@click.option('--target-entropy', '--entropy', '-e', default=0,
-              help='How much entropy to target for the passphrase.')
-@click.option('--config-file-path', '--config', default=path.join(dirname, 'dictionaries.yml'),
-              help='Config file to use for dictionary sourcing.')
-@click.option('--dictionary-cache-path', '--cache', default=path.join(dirname, '.cache.dictionaries'),
-              help='Path for storing caches of dictionaries.')
+@click.group()
+@click.option(
+    '--config-file-path', '--config',
+    default=path.join(dirname, 'dictionaries.yml'),
+    help='Config file to use for dictionary sourcing.'
+)
+@click.option(
+    '--dictionary-cache-path', '--cache',
+    default=path.join(dirname, '.cache.dictionaries'),
+    help='Path for storing caches of dictionaries.'
+)
+@click.option(
+    '--verbose', '-v',
+    default=0,
+    count=True,
+    help="Increase logging verbosity."
+)
+@click.option(
+    '--silence', '-s',
+    default=0,
+    count=True,
+    help="Decrease logging verbosity."
+)
+@click.pass_context
 def main(
+        context: Context,
+        config_file_path: str,
+        dictionary_cache_path: str,
+        verbose: int,
+        silence: int
+    ):
+
+    context.ensure_object(dict)
+
+    level = LogLevel.from_value(silence - verbose)
+    context.obj['log'] = LogLevel.logger(level, wrap=click.echo)
+
+    log: LogOperation = context.obj['log']
+
+    config = read_config(config_file_path, log=log)
+    dictionaries = prepare_dictionaries(config['dictionaries'], dictionary_cache_path, log=log)
+    context.obj['dictionaries'] = dictionaries
+
+
+@main.command(help='Information commands. Displays facts about each dictionary by default.')
+@click.option(
+    '--target-entropy', '--entropy', '-e',
+    default=0,
+    help="Set entropy target for calculations."
+)
+@click.pass_context
+def info(
+        context: Context,
+        target_entropy: int,
+    ):
+
+    log: LogOperation = context.obj['log']
+    dictionaries: dict[str, list[str]] = context.obj['dictionaries']
+
+    log(LogLevel.Trace, 'Running info command')
+
+    headers = [
+        'dictionary',
+        'words',
+        'word entropy',
+        'char entropy',
+        'min word',
+        'max word',
+        'mean word',
+    ]
+
+    if target_entropy > 0:
+        target_entropy = int(target_entropy)
+        headers.append(f'words needed')
+        headers.append(f'chars needed')
+
+    data = []
+    for (name, words) in dictionaries.items():
+        log(LogLevel.Trace, f"Collecting data for '{ name }'")
+        word_count = len(words)
+        word_lengths = list(map(len, words))
+        word_entropy = math.log2(word_count)
+        mean_word = sum(word_lengths) / word_count
+        char_entropy = word_entropy / mean_word
+
+        row = [
+            name,
+            word_count,
+            word_entropy,
+            char_entropy,
+            min(word_lengths),
+            max(word_lengths),
+            mean_word,
+        ]
+
+        if target_entropy != None:
+            words_needed = math.ceil(target_entropy / word_entropy)
+            row.append(words_needed)
+            row.append(words_needed * mean_word)
+
+        data.append(row)
+
+
+    log(LogLevel.Info, tabulate(data, headers=headers))
+
+
+@main.command(help='Generate a passphrase.')
+@click.option(
+    '--dictionary-name', '--dictionary', '--dict', '-d',
+    default='diceware',
+    help='Which dictionary to use.'
+)
+@click.option(
+    '--word-count', '--words', '-w',
+    default=4,
+    help='How many words to use from the given dictionary.'
+)
+@click.option(
+    '--target-entropy', '--entropy', '-e',
+    default=0,
+    help='How much entropy to target for the passphrase.'
+)
+@click.pass_context
+def generate(
+        context: Context,
         dictionary_name: str,
         word_count: int,
         target_entropy: int,
-        config_file_path: str,
-        dictionary_cache_path: str
     ):
 
-    config = read_config(config_file_path)
-    dictionaries = prepare_dictionaries(config['dictionaries'], dictionary_cache_path)
+    log: LogOperation = context.obj['log']
+    dictionaries: dict[str, list[str]] = context.obj['dictionaries']
 
     dictionary = dictionaries[dictionary_name]
 
     entropy_per_word = math.log2(len(dictionary))
     if target_entropy > 0:
+        log(LogLevel.Trace, 'Setting word count from target entropy')
         word_count = math.ceil(target_entropy / entropy_per_word)
 
     passphrase = diceware_selection(dictionary, word_count)
     password = ''.join(passphrase)
     entropy = entropy_per_word * word_count
 
-    print(f'PASSPHRASE: { password }')
-    print(f'WORDS: { word_count }')
-    print(f'LENGTH: { len(password) }')
-    print(f'DICTIONARY: { len(dictionary) }')
-    print(f'ENTROPY: { entropy }')
+    log(LogLevel.Info, password)
+    log(LogLevel.Debug, f'WORDS: { word_count }')
+    log(LogLevel.Debug, f'ENTROPY: { entropy }')
+    log(LogLevel.Debug, f'LENGTH: { len(password) }')
+
+
+@main.group(help='Test commands.')
+def test():
+    pass
+
+
+@test.command('logger', help='Tests each log level.')
+@click.pass_context
+def test_logger(context: Context):
+    log: LogOperation = context.obj['log']
+    for level in LogLevel:
+        log(level, level.name)
 
 
 def diceware_selection(words: list[str], count: int) -> list[str]:
     passphrase = []
     for _ in range(count):
-        passphrase.append(random.choice(words))
+        passphrase.append(secrets.choice(words))
 
     return passphrase
 
 
-def read_config(file_path: str, optional=False) -> dict:
+def read_config(file_path: str, optional=False, log: LogOperation = print) -> dict:
+    log(LogLevel.Debug, f'Starting read_config for "{ file_path }"')
+
     config = {}
 
     if optional and not path.isfile(file_path):
+        log(LogLevel.Trace, 'Skipping missing but optional config')
         return config
 
     with open(file_path, 'r') as f:
+        log(LogLevel.Trace, 'Sucessfully opened file')
         config: dict = yaml.load(f.read(), Loader=Loader)
 
     dirname = path.dirname(file_path)
@@ -83,13 +207,15 @@ def read_config(file_path: str, optional=False) -> dict:
         dictionary: dict = dictionary
         source = dictionary['source']
         if source['type'] == 'file':
+            log(LogLevel.Trace, 'Normalizing file sourced dictionary path to be relative to the config')
             source['path'] = path.join(dirname, source['path'])
 
     for extra in config.get('extra_config', []):
         extra: dict = extra
         extra_config = read_config(
             path.join(dirname, extra['path']),
-            extra.get('optional', False)
+            extra.get('optional', False),
+            log=log
         )
 
         config['dictionaries'].update(extra_config['dictionaries'])
@@ -100,26 +226,31 @@ def read_config(file_path: str, optional=False) -> dict:
     return config
 
 
-def prepare_dictionaries(dictionaries: dict, cache_dir_path: str) -> dict[str, list[str]]:
+def prepare_dictionaries(dictionaries: dict, cache_dir_path: str, log: LogOperation = print) -> dict[str, list[str]]:
     if not path.exists(cache_dir_path):
         os.mkdir(cache_dir_path)
 
     prepared = {}
     for (name, config) in dictionaries.items():
+        log(LogLevel.Debug, f"Preparing dictionary '{ name }'")
+
         name: str = name
         config: dict = config
         source: dict = config['source']
 
         cache_file_path = path.join(cache_dir_path, f'{ name }.txt')
         if path.isfile(cache_file_path):
+            log(LogLevel.Trace, 'Reading dictionary from cache file')
             prepared[name] = read_words_from_dictionary_file(cache_file_path)
             continue
 
         if source['type'] == 'url':
+            log(LogLevel.Trace, 'Reading dictionary from url')
             response = requests.get(source['path'])
             decoded = response.content.decode('utf-8')
             prepared[name] = clean_words(decoded.splitlines())
         elif source['type'] == 'file':
+            log(LogLevel.Trace, 'Reading dictionary from file')
             prepared[name] = read_words_from_dictionary_file(source['path'])
         else:
             raise f"Unknown source type '{ source['type'] }'"
@@ -158,4 +289,4 @@ def uppercase_word(word: str) -> str:
 
 
 if __name__ == '__main__':
-    main()
+    main(obj={})
